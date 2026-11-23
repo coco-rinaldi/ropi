@@ -259,11 +259,11 @@ footer button{border:0;background:none;color:var(--muted);font-size:.7rem;font-w
  async function loadShared(){
   status('conectando con la base compartida…');
   const {data:row,error}=await db.from(TABLE).select('data').eq('id',1).maybeSingle();
-  if(error){console.error(error);status('no se pudo leer la base');toast('revisá la configuración SQL');return false}
+  if(error){console.error(error);status('no se pudo leer: '+error.message);toast('revisá la configuración SQL');return false}
   if(row?.data)shared=cleanData(row.data);
   else{
    const {error:ie}=await db.from(TABLE).insert({id:1,data:shared});
-   if(ie){console.error(ie);status('no se pudo iniciar la base');toast('revisá permisos de Supabase');return false}
+   if(ie){console.error(ie);status('no se pudo iniciar: '+ie.message);toast('revisá permisos de Supabase');return false}
   }
   renderAll();status('sincronización activa');
   if(channel)await db.removeChannel(channel);
@@ -274,11 +274,11 @@ footer button{border:0;background:none;color:var(--muted);font-size:.7rem;font-w
  }
  async function saveShared(){
   status('guardando cambios…');
-  const {error}=await db.from(TABLE).upsert({id:1,data:shared,updated_at:new Date().toISOString()},{onConflict:'id'});
-  if(error){console.error(error);status('error al sincronizar');toast('no se pudo guardar');return}
-  status('sincronización activa');
+  const {data,error}=await db.from(TABLE).upsert({id:1,data:shared,updated_at:new Date().toISOString()},{onConflict:'id'}).select('id');
+  if(error||!data||!data.length){const m=error?error.message:'sin permisos para escribir en la tabla';console.error(error||m);status('no se guardó: '+m);toast('no se pudo guardar');return false}
+  status('guardado en la base compartida');return true;
  }
- function queueSave(){clearTimeout(saveTimer);saveTimer=setTimeout(saveShared,350)}
+ function queueSave(now){clearTimeout(saveTimer);if(now)return saveShared();saveTimer=setTimeout(saveShared,350)}
 
  /* ---------- pop-up: el nop se escapa por toda la pantalla ---------- */
  function resetNop(){const b=$('#nop');b.style.position='';b.style.left='';b.style.top='';b.style.zIndex=''}
@@ -303,16 +303,16 @@ footer button{border:0;background:none;color:var(--muted);font-size:.7rem;font-w
   const was=Boolean(editId);
   if(was)shared.gigs=shared.gigs.map(x=>x.id===editId?{...x,...g}:x);
   else shared.gigs.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),...g});
-  resetGig();renderGigs();queueSave();toast(was?'fecha actualizada':'fecha cargada');
+  resetGig();renderGigs();queueSave(true);toast(was?'fecha actualizada':'fecha cargada');
  });
  $('#gigs').addEventListener('click',e=>{
   const ed=e.target.closest('[data-edit]'),del=e.target.closest('[data-delete]');
   if(ed){const g=shared.gigs.find(x=>x.id===ed.dataset.edit);if(!g)return;editId=g.id;$('#fDate').value=g.date;$('#fPlace').value=g.place;$('#fLine').value=g.lineup||'';$('#submitGig').textContent='guardar';$('#gigForm').classList.remove('hidden');$('#gigForm').scrollIntoView({behavior:'smooth',block:'center'})}
-  if(del){const g=shared.gigs.find(x=>x.id===del.dataset.delete);if(!g||!confirm(`¿eliminar ${g.place}?`))return;shared.gigs=shared.gigs.filter(x=>x.id!==g.id);renderGigs();queueSave();toast('fecha eliminada')}
+  if(del){const g=shared.gigs.find(x=>x.id===del.dataset.delete);if(!g||!confirm(`¿eliminar ${g.place}?`))return;shared.gigs=shared.gigs.filter(x=>x.id!==g.id);renderGigs();queueSave(true);toast('fecha eliminada')}
  });
 
  /* ---------- links y track ---------- */
- $('#editLinks').addEventListener('click',()=>{editingLinks=!editingLinks;$('#editLinks').textContent=editingLinks?'listo':'editar links';renderResources();if(!editingLinks)queueSave()});
+ $('#editLinks').addEventListener('click',()=>{editingLinks=!editingLinks;$('#editLinks').textContent=editingLinks?'listo':'editar links';renderResources();if(!editingLinks)queueSave(true)});
  $('#resourceGrid').addEventListener('input',e=>{const id=e.target.dataset.link;if(!id)return;shared.links[id]=e.target.value.trim();queueSave()});
  $('#resourceGrid').addEventListener('click',e=>{const b=e.target.closest('[data-resource]');if(!b)return;const url=shared.links[b.dataset.resource];if(!url){toast('todavía sin link');return}window.open(url,'_blank','noopener')});
  const openEditor=()=>$('#trackEditor').classList.remove('hidden');
@@ -323,7 +323,7 @@ footer button{border:0;background:none;color:var(--muted);font-size:.7rem;font-w
   const url=$('#trackUrl').value.trim();
   if(url&&!/^https?:\/\//i.test(url)){toast('el link debe empezar con https://');return}
   shared.track={title:$('#trackName').value.trim(),artist:$('#trackBy').value.trim(),url};
-  renderTrack();$('#trackEditor').classList.add('hidden');queueSave();toast('track compartido');
+  renderTrack();$('#trackEditor').classList.add('hidden');queueSave(true);toast('track compartido');
  });
  $('#cancelTrack').addEventListener('click',()=>$('#trackEditor').classList.add('hidden'));
 
